@@ -4,7 +4,7 @@ import(
 	"fmt"
 	"math/rand/v2"
 	"github.com/hajimehoshi/ebiten/v2"
-	//"image"
+	"image"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
@@ -35,8 +35,8 @@ func (Minefield *Game) Update() error {
 				for H := range Width {
 					for V := range Height {
 						if ProximityBoard[H][V] == 9 {
-							if DisplayBoard[H][V] == 11 { DisplayBoard[H][V] = 9 }
-						} else if DisplayBoard[H][V] == 10 {
+							if DisplayBoard[H][V] == 10 { DisplayBoard[H][V] = 9 }
+						} else if DisplayBoard[H][V] == 11 {
 							DisplayBoard[H][V] = 13
 						}
 					}
@@ -100,7 +100,7 @@ func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 			
 			if InBounds(H, V) {
 				if !((H==Xclicked && V==Yclicked) || (H==Xfrom && V==Yfrom)) {
-					if DisplayBoard[H][V] == 11 {
+					if DisplayBoard[H][V] == 10 {
 						if ProximityBoard[H][V] == 0 {
 							DisplayBoard[H][V] = 0
 							ExploreEmpty(H, V, Xclicked, Yclicked)
@@ -117,28 +117,19 @@ func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 func main() {
 	ebiten.SetScreenClearedEveryFrame(false)
 	Tiles = make(map[int8]*ebiten.Image)
-	for i := range int8(9) {
-		Tiles[i] = ImgFromPath(fmt.Sprint(i))
-	}
 
-	Tiles[9] = ImgFromPath("bomb")
-	Tiles[10] = ImgFromPath("flag")
-	Tiles[11] = ImgFromPath("tile")
-	Tiles[12] = ImgFromPath("hit")
-	Tiles[13] = ImgFromPath("wrong")
-
-	//Rect := image.Rectangle{
-	//	image.Point{0, 0},
-	//	image.Point{15, 15}}
+	Rect := image.Rectangle{
+		image.Point{0, 0},
+		image.Point{15, 15}}
 	
-	//Index := ImgFromPath("index")
-	//for i := range 14 {
-	//	fmt.Println(i)
-	//	Tiles[int8(i)] = ebiten.NewImageFromImage(
-	//		Index.SubImage(Rect))
-	//	Rect = Rect.Add(image.Point{0, 16})
-	//	fmt.Println(Rect)
-	//}	
+	Index := ImgFromPath("index")
+	for i := range 14 {
+		fmt.Println(i)
+		Tiles[int8(i)] = ebiten.NewImageFromImage(
+			Index.SubImage(Rect))
+		Rect = Rect.Add(image.Point{0, 16})
+		fmt.Println(Rect)
+	}	
 
 	
 	Height = 5
@@ -152,7 +143,7 @@ func main() {
 		BombBoard[i] = make([]bool, Height)
 		ProximityBoard[i], DisplayBoard[i] = make([]int8, Height), make([]int8, Height)
 		for Tiler := range Height {
-			DisplayBoard[i][Tiler] = 11
+			DisplayBoard[i][Tiler] = 10
 		}
 	}//Board is in (X, Y), starts at 0, 0 at top left.
 	
