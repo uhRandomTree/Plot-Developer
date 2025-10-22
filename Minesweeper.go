@@ -69,10 +69,11 @@ func (Minefield *Game) Layout(RealWidth, RealHeight int) (LogicalWidth, LogicalH
 var(
 Height, Width, Bombs, Spaces, TileSizeX, TileSizeY int
 ProximityBoard, DisplayBoard [][]int8
-Theme string = "ivoryred"
-Tiles map[int8]*ebiten.Image
+Theme string = "FrostC"
 MouseLeftHeld, MouseRightHeld bool
 Error error
+Index *ebiten.Image
+Location ebiten.DrawImageOptions
 )
 
 func InBounds (X, Y int) (In bool) {
@@ -108,20 +109,18 @@ func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 	
 func main() {
 	ebiten.SetScreenClearedEveryFrame(false)
-	Tiles = make(map[int8]*ebiten.Image)
-
 	
 	IndexFile, Error := os.Open(Theme + ".png")
 	defer IndexFile.Close()
 	if Error != nil {
 		fmt.Println(Error)
 	}
-	fmt.Printf("%T\n", IndexFile)
+	
 	IndexImage, _, Error := image.Decode(IndexFile)
 	if Error != nil {
 		fmt.Println(Error)
 	}
-	Index := ebiten.NewImageFromImage(IndexImage)
+	Index = ebiten.NewImageFromImage(IndexImage)
 
 	
 	TileSizeX, TileSizeY = Index.Bounds().Max.X, Index.Bounds().Max.Y
@@ -131,18 +130,6 @@ func main() {
 	} else {
 		TileSizeY /= 14
 	}
-	
-	Rect := image.Rectangle{
-		image.Point{0, 0},
-		image.Point{TileSizeX-1, TileSizeY-1}}
-	
-	for i := range 14 {
-		//fmt.Println(i)
-		Tiles[int8(i)] = ebiten.NewImageFromImage(
-			Index.SubImage(Rect))
-		Rect = Rect.Add(image.Point{0, TileSizeY})
-	}	
-
 	
 	Height = 5
 	Width = 5
@@ -172,17 +159,14 @@ func main() {
 		for _, LTR := range [3]int{-1, 0, 1} {
 			for _, UTD := range [3]int{-1, 0, 1} {
 				if InBounds(BombLocX + LTR, BombLocY + UTD) {
-					if ProximityBoard[BombLocX + LTR][BombLocY + UTD] < 9 {					ProximityBoard[BombLocX + LTR][BombLocY + UTD]++
+					if ProximityBoard[BombLocX + LTR][BombLocY + UTD] < 9 {	ProximityBoard[BombLocX + LTR][BombLocY + UTD]++
 					}
 				}
 			}
 		}
 
 		ProximityBoard [ BombLocX ] [ BombLocY ] = 9
-		
 	}
-
-	fmt.Println(ProximityBoard)
 
 	for Y := range Height {
 		for X := range Width {
@@ -192,7 +176,7 @@ func main() {
 	}
 
 
-	ebiten.SetWindowSize(TileSizeX*10, TileSizeY*10) //to whatever real size we want it to display as.
+	ebiten.SetWindowSize(TileSizeX*20, TileSizeY*20) //to whatever real size we want it to display as.
 	ebiten.SetWindowTitle("Minesweeper Clone")
 	if Error = ebiten.RunGame( &Game{} ) ; Error != nil {
 		fmt.Println(Error)
@@ -200,13 +184,18 @@ func main() {
 }
 
 func (Minefield *Game)  Draw(Screen *ebiten.Image) {	
-	Location := &ebiten.DrawImageOptions{}
-	Location.GeoM.Translate(float64(-TileSizeX), float64( TileSizeY * (Height - 1) ))
 	for Hori := range Width {
-		Location.GeoM.Translate(float64(TileSizeX), float64(-TileSizeY * Height))
 		for Vert := range Height {
-			Location.GeoM.Translate(0, float64(TileSizeY))
-			Screen.DrawImage(Tiles[DisplayBoard[Hori][Vert]], Location)
+			Location.GeoM.Reset()
+			Location.GeoM.Translate(float64(Hori*TileSizeX), float64(Vert*TileSizeY))
+			TileIndex := int(DisplayBoard[Hori][Vert])
+			Rect := image.Rectangle{
+				image.Point{0, (TileSizeY * TileIndex)},
+				image.Point{TileSizeX, (TileSizeY * (TileIndex + 1))}}
+	
+			//DisplayBoard[Hori][Vert] contains the "index" of tile we need to render.
+			TileToDraw := Index.SubImage(Rect).(*ebiten.Image)
+			Screen.DrawImage(TileToDraw, &Location)
 		}
 	}
 }
