@@ -11,27 +11,23 @@ import(
 
 type Game struct{}
 
-func GetTiles() (TileX, TileY int){
+func GetTiles() (TileX, TileY int) {
 	ClickedPosX, ClickedPosY := ebiten.CursorPosition()		
 	TileX = ClickedPosX / TileSizeX
 	TileY = ClickedPosY / TileSizeY
 	return
 }
 
-func (Minefield *Game) Update() error {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		MouseLeftHeld = true
-	} else {
-		if MouseLeftHeld {
-			MouseLeftHeld = false
-			TileX, TileY := GetTiles()		
-			switch ProximityBoard[TileX][TileY] {
+func Dig(TileX, TileY int) {
+	if DisplayBoard[TileX][TileY] != 10 { return }
+	switch ProximityBoard[TileX][TileY] {
 			case 0:
 				DisplayBoard[TileX][TileY] = 0
 				ExploreEmpty(TileX, TileY, TileX, TileY)
 
 			case 9:
 				fmt.Println("GAME OVER")
+				GameState++
 				DisplayBoard[TileX][TileY] = 12
 				for H := range Width {
 					for V := range Height {
@@ -45,20 +41,154 @@ func (Minefield *Game) Update() error {
 			default:
 				DisplayBoard[TileX][TileY] = ProximityBoard[TileX][TileY]
 			}
-		}
+}
+
+func Flag(TileX, TileY int) {
+	if DisplayBoard[TileX][TileY] == 10 {
+		DisplayBoard[TileX][TileY] = 11
+		Flagged++
+	} else if DisplayBoard[TileX][TileY] == 11 {
+		DisplayBoard[TileX][TileY] = 10
+		Flagged--
 	}
-	
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-		if !MouseRightHeld {
-			TileX, TileY := GetTiles()
-			if DisplayBoard[TileX][TileY] >= 10 {
-				DisplayBoard[TileX][TileY] ^= 1
+	// I may want to make this some sort of channel?
+	fmt.Printf("\x1b[1A\x1b[2KBombs: %d\n", Bombs-Flagged)
+}
+
+func Sweep(TileX, TileY int) {
+	ValidLocs := InBoundsTilesAround(TileX, TileY)
+	//Should probably have a "selectedtile" var here or smth.
+	if ProximityBoard[TileX][TileY] > 7 || ProximityBoard[TileX][TileY] == 0 { return } //If it's less than 0, it should only be revealed as everything around it is cleared, so not needed. Obviously, uncovering a bomb ends the game. And if the tile is an 8, there's no point to counting up the tiles, since it won't have anywhere to dig.
+		
+	var TargetFlagNum = ProximityBoard[TileX][TileY]
+	for Dropper := 0 ; Dropper < len(ValidLocs) ; Dropper +=2 {
+		if DisplayBoard[ValidLocs[Dropper]][ValidLocs[Dropper+1]] == 11 { TargetFlagNum-- }
+	}
+	if TargetFlagNum == 0 {
+		for Dropper := 0 ; Dropper < len(ValidLocs) ; Dropper += 2 {
+			if DisplayBoard[ValidLocs[Dropper]][ValidLocs[Dropper+1]] == 10 {
+				Dig(ValidLocs[Dropper], ValidLocs[Dropper+1])
 			}
 		}
-		MouseRightHeld = true
-	} else {
-		MouseRightHeld = false
 	}
+}
+
+func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
+	ValidLocs := InBoundsTilesAround(Xclicked, Yclicked)
+	var H, V int
+	for Dropper := 0 ; Dropper < len(ValidLocs) ; Dropper += 2 {
+		H, V = ValidLocs[Dropper], ValidLocs[Dropper+1]
+		if DisplayBoard[H][V] == 10 {
+			DisplayBoard[H][V] = ProximityBoard[H][V]
+			// Could try to insert the tile counter here, it depends on if this recounts itself.
+			if ProximityBoard[H][V] == 0 { ExploreEmpty(H, V, Xclicked, Yclicked) } 
+		}
+	}
+}
+
+
+
+var Flagged int
+var GameState int // 0 is on first click, 1 is actively playing, 2 is over
+
+type Action struct {
+	isHeld bool
+	wasHeld bool // Last tick
+	usesButtons bool
+	usesKeys bool
+	buttons ebiten.MouseButton
+	keys ebiten.Key
+}
+// I'm sure something clever could be done with channels
+
+var(
+	Digging = Action {
+		usesButtons: true,
+		buttons: ebiten.MouseButton0,
+		usesKeys: false,
+		keys: ebiten.KeyNumpad0,
+	}
+	Sweeping = Action {
+		usesButtons: true,
+		buttons: ebiten.MouseButton1,
+		usesKeys: false,
+		keys: ebiten.KeyNumpad0,
+	}
+	Flagging = Action {
+		usesButtons: true,
+		buttons: ebiten.MouseButton2,
+		usesKeys: false,
+		keys: ebiten.KeyNumpad0,
+	}
+	Resetting = Action {
+		usesButtons: true,
+		buttons: ebiten.MouseButton4,
+		usesKeys: true,
+		keys: ebiten.KeyR,
+	}
+	// Should I bother making a quitting action?
+)
+
+func (Minefield *Game) Update() error {
+	// ebiten.KeyNumpad0 will be the "dummy" key: it still works, it's just there to display that KB keys can't be used.
+	for _, A := range [4]*Action{&Digging, &Sweeping, &Flagging, &Resetting} { // Are pointers correct here?
+		A.wasHeld = A.isHeld
+		A.isHeld = false
+		if A.usesButtons {
+			if ebiten.IsMouseButtonPressed(A.buttons) { A.isHeld = true }
+		}
+		if A.usesKeys {
+			if ebiten.IsKeyPressed(A.keys) { A.isHeld = true }
+		}
+	}
+
+	if !Resetting.isHeld && Resetting.wasHeld {
+		// RESET
+		GameState = 0
+		for H := range Width {
+			for V := range Height {
+				DisplayBoard[H][V] = 10
+				ProximityBoard[H][V] = 0
+			}
+		}
+		Flagged = 0
+		fmt.Println("RESETTING GAME")
+	}
+	
+	if GameState == 2 { return nil }
+
+	if Digging.isHeld && Flagging.isHeld { // Chording. Should I have a special case where I look at the actual keys? What maps better in the brain lol.
+		Digging.isHeld = false ; Flagging.isHeld = false
+		Sweeping.isHeld = true
+	}
+	// check if the above works
+	// Also check for the other combos.
+	if !Digging.isHeld && Digging.wasHeld {
+		if GameState == 0 {
+			ProximityBoard = InitializeBoard(GetTiles())
+			GameState++
+			BechtelValue()
+			// Start counting timing here
+		}
+		// Get the hollow tiles
+		Dig(GetTiles())
+	}
+	if !Sweeping.isHeld && Sweeping.wasHeld { Sweep(GetTiles()) } // Hollow tiles
+	if Flagging.isHeld && !Flagging.wasHeld { Flag(GetTiles()) }
+
+	
+	var Uncleared int
+	for H := range Width {
+		for V := range Height {
+			if DisplayBoard[H][V] > 9 { Uncleared++ }
+		}
+	}
+	if Uncleared == Bombs {
+		fmt.Println("YOU WIN")
+		GameState++
+	}
+	// Ideally, I'd count up as tiles are cleared: it's probably more efficient than this.
+	// I hate most
 	return nil
 }
 
@@ -67,62 +197,121 @@ func (Minefield *Game) Layout(RealWidth, RealHeight int) (LogicalWidth, LogicalH
 }
 
 var(
-Height, Width, Bombs, Spaces, TileSizeX, TileSizeY int
+Height, Width, Bombs, TileSizeX, TileSizeY int
 ProximityBoard, DisplayBoard [][]int8
-Theme string = "FrostC"
-MouseLeftHeld, MouseRightHeld bool
 Error error
 Index *ebiten.Image
 Location ebiten.DrawImageOptions
+BombBoard [][]bool
 )
-
-func InBounds (X, Y int) (In bool) {
-	In = true
-	if X < 0 { In = false }
-	if X >= Width { In = false }
-	if Y < 0 { In = false }
-	if Y >= Height { In = false }
+func InBoundsTilesAround(Xclicked, Yclicked int) (Locations []int) {
+	// Is there a way to make this some sort of iterator?
+	// Assumes the clicked tile is inbounds
+	for H := range 3 {
+		H += Xclicked - 1
+		if (H < 0) || (H == Width) {continue}
+		for V := range 3 {
+			if (H == Xclicked) && (V == 1) {continue}
+			// Slightly confusing, but it removes the clicked tile from being included, and removes a VERY small amount of processing.
+			V += Yclicked - 1
+			if (V < 0) || (V == Height) {continue}
+			Locations = append(Locations, H, V)
+		}
+	}
 	return
 }
 
-func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
-	for _, h := range [3]int{-1, 0, 1} {
-		H := Xclicked + h
-		for _, v := range [3]int{-1, 0, 1} {
-			V := Yclicked + v
-			
-			if InBounds(H, V) {
-				if !((H==Xclicked && V==Yclicked) || (H==Xfrom && V==Yfrom)) {
-					if DisplayBoard[H][V] == 10 {
-						if ProximityBoard[H][V] == 0 {
-							DisplayBoard[H][V] = 0
-							ExploreEmpty(H, V, Xclicked, Yclicked)
-						} else {
-							DisplayBoard[H][V] = ProximityBoard[H][V]
-						}
-					}
-				}
+func InitializeBoard (Xclicked, Yclicked int) [][]int8 {
+
+	var BombPlace int = (Yclicked * Width) + Xclicked
+	var BombLocation, BombLocX, BombLocY int
+	Spaces := Width * Height
+	
+	SRBombs := make([]int, Spaces)
+	Spaces--
+	for i := range Spaces { SRBombs[i] = i } // Can probably be done in one line, I don't know.
+
+	SRBombs = append(SRBombs[:BombPlace], SRBombs[BombPlace+1:]...)
+	
+	for i := range Bombs {
+		BombPlace = rand.IntN(Spaces - i)
+		BombLocation = SRBombs[BombPlace]
+		
+		SRBombs = append( SRBombs[:BombPlace], SRBombs[BombPlace+1:]... )
+		BombLocX, BombLocY = BombLocation % Width, BombLocation / Width
+		BombBoard [ BombLocX ] [ BombLocY ] = true
+
+		ValidLocs := InBoundsTilesAround(BombLocX, BombLocY)
+		for Dropper := 0 ; Dropper < len(ValidLocs) ; Dropper += 2 {
+			if ProximityBoard[ValidLocs[Dropper]][ValidLocs[Dropper+1]] < 9 {
+				ProximityBoard[ValidLocs[Dropper]][ValidLocs[Dropper+1]]++
 			}
 		}
+
+		ProximityBoard [ BombLocX ] [ BombLocY ] = 9
+
 	}
+	return ProximityBoard
 }
+
+// TODO
+func BechtelValue() (Clicks int) {
+	// Implementation slightly inspired by:
+	// https://gamedev.stackexchange.com/questions/63046/how-should-i-calculate-the-score-in-minesweeper-3bv-or-3bv-s
+	var Cleared [][]bool = make([][]bool, Width)
+	for i := range Width {
+		Cleared[i] = make([]bool, Height)
+	}
+	
+	for V := range Height {
+		for H := range Width {
+			if Cleared[H][V] { continue }
+			Cleared[H][V] = true
+			switch ProximityBoard[H][V] {
+				case 9: continue // Bombs aren't counted, obviously
+				case 0: // This is where I have to do the flood fill sweeping thing.
+					aroundZero := false // I deviated from the implementation here, but I thought this was clever.
+					Surrounding := InBoundsTilesAround(H, V) // Might want it to only be cardinal.
+					for i:= 0 ; i < len(Surrounding) ; i += 2 {
+						tX, tY := Surrounding[i], Surrounding[i+1]
+						if Cleared[tX][tY] && ProximityBoard[tX][tY] == 0 {
+							Cleared[H][V] = true
+							aroundZero = true
+							continue
+						}
+					}
+					if !aroundZero { Clicks++ }
+					// These are very similar, I should do something about that.
+				default:
+					aroundZero := false
+					Surrounding := InBoundsTilesAround(H, V)
+					for i := 0 ; i < len(Surrounding) ; i += 2 {
+						if ProximityBoard[Surrounding[i]][Surrounding[i+1]] == 0 { aroundZero = true ; continue }
+					}
+					if !aroundZero { Clicks++ }	
+			}
+		}			
+	}
+	// Stress test
+	return Clicks // Could (should?) do a naked return, but better for readability.
+}
+
+// TODO
+// Time and allat
 	
 func main() {
 	ebiten.SetScreenClearedEveryFrame(false)
+
+	var Theme string = "ClassicXP"
 	
-	IndexFile, Error := os.Open(Theme + ".png")
-	defer IndexFile.Close()
-	if Error != nil {
-		fmt.Println(Error)
-	}
+	IndexFile, Error := os.Open(Theme + ".png") // Check if this is even openable/exists?
+	defer IndexFile.Close() // I should check for if it fails to close.
+	if Error != nil { fmt.Println(Error) }
 	
 	IndexImage, _, Error := image.Decode(IndexFile)
-	if Error != nil {
-		fmt.Println(Error)
-	}
+	if Error != nil { fmt.Println(Error) }
 	Index = ebiten.NewImageFromImage(IndexImage)
 
-	
 	TileSizeX, TileSizeY = Index.Bounds().Max.X, Index.Bounds().Max.Y
 	if TileSizeY % 14 != 0 {
 		fmt.Println("Malformed tileset error")
@@ -131,56 +320,67 @@ func main() {
 		TileSizeY /= 14
 	}
 	
-	Height = 5
-	Width = 5
-	Bombs = 5 // Cannot be more than Spaces
-	Spaces = Height * Width
-	BombBoard := make([][]bool, Width)
+	fmt.Printf(
+`Select difficulty:
+1. (B)eginner     8x8   10
+2. (I)ntermediate 16x16 40
+3. (E)xpert       30x16 99
+4. (C)ustom       WxH   B
+`)
+	var Difficulty rune
+	_, Error = fmt.Scanf("%c\n", &Difficulty)
+	// Sterilize this
+	if Error != nil { fmt.Println(Error) }
+	switch Difficulty {
+		case 'B', 'b', '1' : Width, Height, Bombs = 8, 8, 10
+		case 'I', 'i', '2' : Width, Height, Bombs = 16, 16, 40
+		case 'E', 'e', '3' : Width, Height, Bombs = 30, 16, 99
+		case 'C', 'c', '4' :
+			fmt.Print("Width: ") ; fmt.Scanf("%d\n", &Width)
+			fmt.Print("Height: ") ; fmt.Scanf("%d\n", &Height)
+			fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+			// I should probably check for errors
+			// Take input in a way that doesn't require 3 enters?
+			for Bombs >= Width * Height {
+				fmt.Println("Bombs must be less than Width * Height.")
+				fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+			}
+			if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+	}
+	fmt.Println("Bombs:", Bombs)
+
+	// Difficulties:
+	// Beginner - 8x8, 10
+	// Intermediate - 16x16, 40
+	// Expert - 30x16, 99
+	
+	// 3BV limits is 2, 30, 100
+	
+	
+	// Doing all the work I can before InitializeBoard, as to reduce slowdown.
+	BombBoard = make([][]bool, Width)
 	ProximityBoard, DisplayBoard = make([][]int8, Width), make([][]int8, Width)
+	
 	for i := range Width {
 		BombBoard[i] = make([]bool, Height)
 		ProximityBoard[i], DisplayBoard[i] = make([]int8, Height), make([]int8, Height)
+		
 		for Tiler := range Height {
 			DisplayBoard[i][Tiler] = 10
 		}
-	}//Board is in (X, Y), starts at 0, 0 at top left.
-	
-	var SRBombs []int = make([]int, Spaces, Spaces)
-	for i := range Spaces { SRBombs[i] = i } // Can probably be done in one line, I don't know.
-	
-	for i := range Bombs {
-		var BombPlace int = rand.IntN(Spaces - i)
-		var BombLocation = SRBombs[BombPlace]
-		fmt.Println(BombLocation)
-		SRBombs = append( SRBombs[:BombPlace], SRBombs[BombPlace+1:]... )
-		var BombLocX, BombLocY = BombLocation % Width, BombLocation / Height
-		BombBoard [ BombLocX ] [ BombLocY ] = true
-
-		for _, LTR := range [3]int{-1, 0, 1} {
-			for _, UTD := range [3]int{-1, 0, 1} {
-				if InBounds(BombLocX + LTR, BombLocY + UTD) {
-					if ProximityBoard[BombLocX + LTR][BombLocY + UTD] < 9 {	ProximityBoard[BombLocX + LTR][BombLocY + UTD]++
-					}
-				}
-			}
-		}
-
-		ProximityBoard [ BombLocX ] [ BombLocY ] = 9
 	}
+	// Board is in (X, Y), starts at 0, 0 at top left.
+	// All other work needs to know the location of the first click.
 
-	for Y := range Height {
-		for X := range Width {
-			fmt.Print(ProximityBoard[X][Y], ", ")
-		}
-		fmt.Println()
-	}
-
-
-	ebiten.SetWindowSize(TileSizeX*20, TileSizeY*20) //to whatever real size we want it to display as.
+	const ScaleConst int = 2
+	ebiten.SetWindowSize(TileSizeX*Width*ScaleConst, TileSizeY*Height*ScaleConst) //to whatever real size we want it to display as.
 	ebiten.SetWindowTitle("Minesweeper Clone")
+	// ebiten.SetWindowFloating(false)
+	// How do I stop the window from starting floating?
 	if Error = ebiten.RunGame( &Game{} ) ; Error != nil {
 		fmt.Println(Error)
 	}
+	
 }
 
 func (Minefield *Game)  Draw(Screen *ebiten.Image) {	
