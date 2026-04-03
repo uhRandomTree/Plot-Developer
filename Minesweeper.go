@@ -148,6 +148,7 @@ func (Minefield *Game) Update() error {
 		if ebiten.IsKeyPressed(ebiten.Key2) { ResetTo = 2 }
 		if ebiten.IsKeyPressed(ebiten.Key3) { ResetTo = 3 }
 		if ebiten.IsKeyPressed(ebiten.Key4) { ResetTo = 4 }
+		// These can be action keys, but I just don't think it matters. The user is resetting anyways.
 	}
 
 	if !Resetting.isHeld && Resetting.wasHeld {
@@ -159,13 +160,9 @@ func (Minefield *Game) Update() error {
 			case 2 : Width, Height, Bombs = 16, 16, 40
 			case 3 : Width, Height, Bombs = 30, 16, 99
 			case 4 :
-				// fmt.Print("Width: ") ; fmt.Scanf("%d\n", &Width)
-				// fmt.Print("Height: ") ; fmt.Scanf("%d\n", &Height)
-				// fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
 				fmt.Print("In the format WxH B: ")
 				fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
 				// I should probably check for errors
-				// Take input in a way that doesn't require 3 enters?
 				for Bombs >= Width * Height {
 					fmt.Println("Bombs must be less than Width * Height.")
 					fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
@@ -257,33 +254,6 @@ func IniDisplayBoard (Width, Height int) (DisplayBoard [][]int8) {
 	ebiten.SetWindowSize(TileSizeX*Width*ScaleConst, TileSizeY*Height*ScaleConst) //to whatever real size we want it to display as.
 	return DisplayBoard
 }
-
-// func IniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (BombBoard [][]bool) {
-// 	BombBoard = make([][]bool, Width)
-// 	for i := range Width {
-// 		BombBoard[i] = make([]bool, Height)
-// 	}
-
-// 	var BombPlace int = (Yclicked * Width) + Xclicked
-// 	var BombLocation, BombLocX, BombLocY int
-// 	var Spaces = Width * Height
-
-// 	SRBombs := make([]int, Spaces)
-// 	Spaces--
-// 	for i := range Spaces { SRBombs[i] = i } // Can probably be done in one line, I don't know.
-
-// 	SRBombs = append(SRBombs[:BombPlace], SRBombs[BombPlace+1:]...)
-
-// 	for i := range Bombs {
-// 		BombPlace = rand.IntN(Spaces - i)
-// 		BombLocation = SRBombs[BombPlace]
-	
-// 		SRBombs = append( SRBombs[:BombPlace], SRBombs[BombPlace+1:]... )
-// 		BombLocX, BombLocY = BombLocation % Width, BombLocation / Width
-// 		BombBoard [ BombLocX ] [ BombLocY ] = true
-// 	}
-
-// }
 
 func IniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (ProximityBoard [][]int8, BombBoard [][]bool) {
 
