@@ -90,6 +90,7 @@ func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 
 var Flagged int
 var GameState int // 0 is on first click, 1 is actively playing, 2 is over
+var ResetTo int
 
 type Action struct {
 	isHeld bool
@@ -142,16 +143,36 @@ func (Minefield *Game) Update() error {
 		}
 	}
 
+	if Resetting.isHeld {
+		if ebiten.IsKeyPressed(ebiten.Key1) { ResetTo = 1 }
+		if ebiten.IsKeyPressed(ebiten.Key2) { ResetTo = 2 }
+		if ebiten.IsKeyPressed(ebiten.Key3) { ResetTo = 3 }
+		if ebiten.IsKeyPressed(ebiten.Key4) { ResetTo = 4 }
+	}
+
 	if !Resetting.isHeld && Resetting.wasHeld {
 		// RESET
 		GameState = 0
-		for H := range Width {
-			for V := range Height {
-				DisplayBoard[H][V] = 10
-				ProximityBoard[H][V] = 0
-			}
-		}
 		Flagged = 0
+		switch ResetTo {
+			case 1 : Width, Height, Bombs = 8, 8, 10
+			case 2 : Width, Height, Bombs = 16, 16, 40
+			case 3 : Width, Height, Bombs = 30, 16, 99
+			case 4 :
+				// fmt.Print("Width: ") ; fmt.Scanf("%d\n", &Width)
+				// fmt.Print("Height: ") ; fmt.Scanf("%d\n", &Height)
+				// fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+				fmt.Print("In the format WxH B: ")
+				fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
+				// I should probably check for errors
+				// Take input in a way that doesn't require 3 enters?
+				for Bombs >= Width * Height {
+					fmt.Println("Bombs must be less than Width * Height.")
+					fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+				}
+				// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+		}
+		DisplayBoard = IniDisplayBoard(Width, Height)		
 		fmt.Println("RESETTING GAME")
 	}
 	
@@ -165,7 +186,9 @@ func (Minefield *Game) Update() error {
 	// Also check for the other combos.
 	if !Digging.isHeld && Digging.wasHeld {
 		if GameState == 0 {
-			ProximityBoard = InitializeBoard(GetTiles())
+			ClX, ClY := GetTiles()
+			// I imagine there's a better way to do this
+			ProximityBoard, BombBoard = IniGameBoards(ClX, ClY, Width, Height, Bombs)
 			GameState++
 			BechtelValue()
 			// Start counting timing here
@@ -221,11 +244,60 @@ func InBoundsTilesAround(Xclicked, Yclicked int) (Locations []int) {
 	return
 }
 
-func InitializeBoard (Xclicked, Yclicked int) [][]int8 {
+func IniDisplayBoard (Width, Height int) (DisplayBoard [][]int8) {
+	DisplayBoard = make([][]int8, Width)
+	for i := range Width {
+		DisplayBoard[i] = make([]int8, Height)
+		
+		for Tiler := range Height {
+			DisplayBoard[i][Tiler] = 10
+		}
+	}
+	const ScaleConst int = 2
+	ebiten.SetWindowSize(TileSizeX*Width*ScaleConst, TileSizeY*Height*ScaleConst) //to whatever real size we want it to display as.
+	return DisplayBoard
+}
 
+// func IniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (BombBoard [][]bool) {
+// 	BombBoard = make([][]bool, Width)
+// 	for i := range Width {
+// 		BombBoard[i] = make([]bool, Height)
+// 	}
+
+// 	var BombPlace int = (Yclicked * Width) + Xclicked
+// 	var BombLocation, BombLocX, BombLocY int
+// 	var Spaces = Width * Height
+
+// 	SRBombs := make([]int, Spaces)
+// 	Spaces--
+// 	for i := range Spaces { SRBombs[i] = i } // Can probably be done in one line, I don't know.
+
+// 	SRBombs = append(SRBombs[:BombPlace], SRBombs[BombPlace+1:]...)
+
+// 	for i := range Bombs {
+// 		BombPlace = rand.IntN(Spaces - i)
+// 		BombLocation = SRBombs[BombPlace]
+	
+// 		SRBombs = append( SRBombs[:BombPlace], SRBombs[BombPlace+1:]... )
+// 		BombLocX, BombLocY = BombLocation % Width, BombLocation / Width
+// 		BombBoard [ BombLocX ] [ BombLocY ] = true
+// 	}
+
+// }
+
+func IniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (ProximityBoard [][]int8, BombBoard [][]bool) {
+
+	BombBoard = make([][]bool, Width)
+	ProximityBoard = make([][]int8, Width)
+	
+	for i := range Width {
+		BombBoard[i] = make([]bool, Height)
+		ProximityBoard[i] = make([]int8, Height)
+	}
+	
 	var BombPlace int = (Yclicked * Width) + Xclicked
 	var BombLocation, BombLocX, BombLocY int
-	Spaces := Width * Height
+	var Spaces = Width * Height
 	
 	SRBombs := make([]int, Spaces)
 	Spaces--
@@ -251,14 +323,13 @@ func InitializeBoard (Xclicked, Yclicked int) [][]int8 {
 		ProximityBoard [ BombLocX ] [ BombLocY ] = 9
 
 	}
-	return ProximityBoard
+	return ProximityBoard, BombBoard
 }
 
-// TODO
 func BechtelValue() (Clicks int) {
 	// Implementation slightly inspired by:
 	// https://gamedev.stackexchange.com/questions/63046/how-should-i-calculate-the-score-in-minesweeper-3bv-or-3bv-s
-	var Cleared [][]bool = make([][]bool, Width)
+	var Cleared = make([][]bool, Width)
 	for i := range Width {
 		Cleared[i] = make([]bool, Height)
 	}
@@ -336,16 +407,18 @@ func main() {
 		case 'I', 'i', '2' : Width, Height, Bombs = 16, 16, 40
 		case 'E', 'e', '3' : Width, Height, Bombs = 30, 16, 99
 		case 'C', 'c', '4' :
-			fmt.Print("Width: ") ; fmt.Scanf("%d\n", &Width)
-			fmt.Print("Height: ") ; fmt.Scanf("%d\n", &Height)
-			fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+			// fmt.Print("Width: ") ; fmt.Scanf("%d\n", &Width)
+			// fmt.Print("Height: ") ; fmt.Scanf("%d\n", &Height)
+			// fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+			fmt.Print("In the format WxH B: ")
+			fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
 			// I should probably check for errors
 			// Take input in a way that doesn't require 3 enters?
 			for Bombs >= Width * Height {
 				fmt.Println("Bombs must be less than Width * Height.")
 				fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
 			}
-			if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+			// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
 	}
 	fmt.Println("Bombs:", Bombs)
 
@@ -353,30 +426,14 @@ func main() {
 	// Beginner - 8x8, 10
 	// Intermediate - 16x16, 40
 	// Expert - 30x16, 99
-	
 	// 3BV limits is 2, 30, 100
-	
-	
-	// Doing all the work I can before InitializeBoard, as to reduce slowdown.
-	BombBoard = make([][]bool, Width)
-	ProximityBoard, DisplayBoard = make([][]int8, Width), make([][]int8, Width)
-	
-	for i := range Width {
-		BombBoard[i] = make([]bool, Height)
-		ProximityBoard[i], DisplayBoard[i] = make([]int8, Height), make([]int8, Height)
-		
-		for Tiler := range Height {
-			DisplayBoard[i][Tiler] = 10
-		}
-	}
-	// Board is in (X, Y), starts at 0, 0 at top left.
-	// All other work needs to know the location of the first click.
 
-	const ScaleConst int = 2
-	ebiten.SetWindowSize(TileSizeX*Width*ScaleConst, TileSizeY*Height*ScaleConst) //to whatever real size we want it to display as.
+	DisplayBoard = IniDisplayBoard(Width, Height)
+	// InitGameBoards runs on the first click; check in Update for when GameState == 0
+	// Board is in (X, Y), starts at 0, 0 at top left.
+	// Other work needs to know the location of the first click.
+
 	ebiten.SetWindowTitle("Minesweeper Clone")
-	// ebiten.SetWindowFloating(false)
-	// How do I stop the window from starting floating?
 	if Error = ebiten.RunGame( &Game{} ) ; Error != nil {
 		fmt.Println(Error)
 	}
