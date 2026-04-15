@@ -7,6 +7,7 @@ import(
 	"image"
 	_ "image/png"
 	"os"
+	"time"
 )
 
 type Game struct{}
@@ -26,6 +27,7 @@ func Dig(TileX, TileY int) {
 				ExploreEmpty(TileX, TileY, TileX, TileY)
 
 			case 9:
+				ticker.Stop()
 				fmt.Println("GAME OVER")
 				GameState++
 				DisplayBoard[TileX][TileY] = 12
@@ -52,7 +54,7 @@ func Flag(TileX, TileY int) {
 		Flagged--
 	}
 	// I may want to make this some sort of channel?
-	fmt.Printf("\x1b[1A\x1b[2KBombs: %d\n", Bombs-Flagged)
+	fmt.Printf("\x1b[2A\x1b[2KBombs: %d\x1b[2B\r", Bombs-Flagged)
 }
 
 func Sweep(TileX, TileY int) {
@@ -87,10 +89,13 @@ func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 }
 
 
-
-var Flagged int
-var GameState int // 0 is on first click, 1 is actively playing, 2 is over
-var ResetTo int
+var (
+	Flagged int
+	GameState int // 0 is on first click, 1 is actively playing, 2 is over
+	ResetTo int
+	ticker *time.Ticker
+	tickerDisplay int
+)
 
 type Action struct {
 	isHeld bool
@@ -128,6 +133,7 @@ var(
 		keys: ebiten.KeyR,
 	}
 	// Should I bother making a quitting action?
+	// Probably :(
 )
 
 func (Minefield *Game) Update() error {
@@ -155,22 +161,12 @@ func (Minefield *Game) Update() error {
 		// RESET
 		GameState = 0
 		Flagged = 0
-		switch ResetTo {
-			case 1 : Width, Height, Bombs = 8, 8, 10
-			case 2 : Width, Height, Bombs = 16, 16, 40
-			case 3 : Width, Height, Bombs = 30, 16, 99
-			case 4 :
-				fmt.Print("In the format WxH B: ")
-				fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
-				// I should probably check for errors
-				for Bombs >= Width * Height {
-					fmt.Println("Bombs must be less than Width * Height.")
-					fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
-				}
-				// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
-		}
-		DisplayBoard = IniDisplayBoard(Width, Height)		
+		SetDifficulty(ResetTo)
+		if ResetTo == 4 { ResetTo = 0 }
+		DisplayBoard = IniDisplayBoard(Width, Height)
+		ticker.Stop()	
 		fmt.Println("RESETTING GAME")
+		fmt.Printf("Bombs: %d\nTime: 0\n", Bombs)
 	}
 	
 	if GameState == 2 { return nil }
@@ -189,6 +185,20 @@ func (Minefield *Game) Update() error {
 			GameState++
 			BechtelValue()
 			// Start counting timing here
+			ticker = time.NewTicker( time.Second )
+			tickerDisplay = 1
+
+			// Visual ticker
+			go func() {
+				for {
+					// For some reason, always sends one extra tick after it's been stopped.
+					select {
+						case <- ticker.C:
+							fmt.Printf("\x1b[1A\x1b[2KTime: %d\x1b[1B\r", tickerDisplay)
+							tickerDisplay++
+					}
+				}
+			} ()
 		}
 		// Get the hollow tiles
 		Dig(GetTiles())
@@ -205,6 +215,7 @@ func (Minefield *Game) Update() error {
 	}
 	if Uncleared == Bombs {
 		fmt.Println("YOU WIN")
+		ticker.Stop()
 		GameState++
 	}
 	// Ideally, I'd count up as tiles are cleared: it's probably more efficient than this.
@@ -312,7 +323,7 @@ func BechtelValue() (Clicks int) {
 				case 9: continue // Bombs aren't counted, obviously
 				case 0: // This is where I have to do the flood fill sweeping thing.
 					aroundZero := false // I deviated from the implementation here, but I thought this was clever.
-					Surrounding := InBoundsTilesAround(H, V) // Might want it to only be cardinal.
+					Surrounding := InBoundsTilesAround(H, V)
 					for i:= 0 ; i < len(Surrounding) ; i += 2 {
 						tX, tY := Surrounding[i], Surrounding[i+1]
 						if Cleared[tX][tY] && ProximityBoard[tX][tY] == 0 {
@@ -333,8 +344,25 @@ func BechtelValue() (Clicks int) {
 			}
 		}			
 	}
-	// Stress test
 	return Clicks // Could (should?) do a naked return, but better for readability.
+}
+
+func SetDifficulty(Chosen int) {
+	// 1..4: Beginner 8x8 10, Intermediate 16x16 40, Expert 30x16 99, Custom WxH B
+	switch Chosen {
+		case 1 : Width, Height, Bombs = 8, 8, 10
+		case 2 : Width, Height, Bombs = 16, 16, 40
+		case 3 : Width, Height, Bombs = 30, 16, 99
+		case 4 :
+			fmt.Print("In the format WxH B: ")
+			fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
+			// I should probably check for errors
+			for Bombs >= Width * Height {
+				fmt.Println("Bombs must be less than Width * Height.")
+				fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+			}
+			// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+	}
 }
 
 // TODO
@@ -373,24 +401,12 @@ func main() {
 	// Sterilize this
 	if Error != nil { fmt.Println(Error) }
 	switch Difficulty {
-		case 'B', 'b', '1' : Width, Height, Bombs = 8, 8, 10
-		case 'I', 'i', '2' : Width, Height, Bombs = 16, 16, 40
-		case 'E', 'e', '3' : Width, Height, Bombs = 30, 16, 99
-		case 'C', 'c', '4' :
-			// fmt.Print("Width: ") ; fmt.Scanf("%d\n", &Width)
-			// fmt.Print("Height: ") ; fmt.Scanf("%d\n", &Height)
-			// fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
-			fmt.Print("In the format WxH B: ")
-			fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
-			// I should probably check for errors
-			// Take input in a way that doesn't require 3 enters?
-			for Bombs >= Width * Height {
-				fmt.Println("Bombs must be less than Width * Height.")
-				fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
-			}
-			// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+		case 'B', 'b', '1' : SetDifficulty(1)
+		case 'I', 'i', '2' : SetDifficulty(2)
+		case 'E', 'e', '3' : SetDifficulty(3)
+		case 'C', 'c', '4' : SetDifficulty(4)
 	}
-	fmt.Println("Bombs:", Bombs)
+	fmt.Printf("Bombs: %d\nTime: 0\n", Bombs)
 
 	// Difficulties:
 	// Beginner - 8x8, 10
@@ -407,7 +423,6 @@ func main() {
 	if Error = ebiten.RunGame( &Game{} ) ; Error != nil {
 		fmt.Println(Error)
 	}
-	
 }
 
 func (Minefield *Game)  Draw(Screen *ebiten.Image) {	
