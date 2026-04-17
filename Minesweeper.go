@@ -28,6 +28,7 @@ func Dig(TileX, TileY int) {
 
 			case 9:
 				ticker.Stop()
+				fmt.Printf("\x1b[1A\x1b[2KTime: %.2f\x1b[1B\r", time.Now().Sub(firstClickTime).Seconds() )
 				fmt.Println("GAME OVER")
 				GameState++
 				DisplayBoard[TileX][TileY] = 12
@@ -95,6 +96,7 @@ var (
 	ResetTo int
 	ticker *time.Ticker
 	tickerDisplay int
+	firstClickTime time.Time
 )
 
 type Action struct {
@@ -134,10 +136,10 @@ var(
 	}
 	// Should I bother making a quitting action?
 	// Probably :(
+	// ebiten.KeyNumpad0 will be the "dummy" key: it still works, it's just there to display that KB keys can't be used.
 )
 
 func (Minefield *Game) Update() error {
-	// ebiten.KeyNumpad0 will be the "dummy" key: it still works, it's just there to display that KB keys can't be used.
 	for _, A := range [4]*Action{&Digging, &Sweeping, &Flagging, &Resetting} { // Are pointers correct here?
 		A.wasHeld = A.isHeld
 		A.isHeld = false
@@ -164,7 +166,7 @@ func (Minefield *Game) Update() error {
 		SetDifficulty(ResetTo)
 		if ResetTo == 4 { ResetTo = 0 }
 		DisplayBoard = IniDisplayBoard(Width, Height)
-		ticker.Stop()	
+		ticker.Stop()
 		fmt.Println("RESETTING GAME")
 		fmt.Printf("Bombs: %d\nTime: 0\n", Bombs)
 	}
@@ -182,6 +184,7 @@ func (Minefield *Game) Update() error {
 			ClX, ClY := GetTiles()
 			// I imagine there's a better way to do this
 			ProximityBoard, BombBoard = IniGameBoards(ClX, ClY, Width, Height, Bombs)
+			firstClickTime = time.Now()
 			GameState++
 			BechtelValue()
 			// Start counting timing here
@@ -191,14 +194,11 @@ func (Minefield *Game) Update() error {
 			// Visual ticker
 			go func() {
 				for {
-					// For some reason, always sends one extra tick after it's been stopped.
-					select {
-						case <- ticker.C:
-							fmt.Printf("\x1b[1A\x1b[2KTime: %d\x1b[1B\r", tickerDisplay)
-							tickerDisplay++
-					}
+					<- ticker.C
+					fmt.Printf("\x1b[1A\x1b[2KTime: %d\x1b[1B\r", tickerDisplay)
+					tickerDisplay++
 				}
-			} ()
+			}()
 		}
 		// Get the hollow tiles
 		Dig(GetTiles())
@@ -214,12 +214,13 @@ func (Minefield *Game) Update() error {
 		}
 	}
 	if Uncleared == Bombs {
+		fmt.Printf("\x1b[1A\x1b[2KTime: %.2f\x1b[1B\r", time.Now().Sub(firstClickTime).Seconds() )
+		fmt.Println("3BV: ", BechtelValue())
 		fmt.Println("YOU WIN")
 		ticker.Stop()
 		GameState++
 	}
 	// Ideally, I'd count up as tiles are cleared: it's probably more efficient than this.
-	// I hate most
 	return nil
 }
 
@@ -357,9 +358,17 @@ func SetDifficulty(Chosen int) {
 			fmt.Print("In the format WxH B: ")
 			fmt.Scanf("%dx%d %d", &Width, &Height, &Bombs)// Does this need a \n?
 			// I should probably check for errors
+			for Width <= 0 {
+				fmt.Printf("Dimensions must be >= 0.\nWidth: ")
+				fmt.Scanf("%d\n", &Width)
+			}
+			for Height <= 0 {
+				fmt.Printf("Dimensions must be >= 0.\nHeight: ")
+				fmt.Scanf("%d\n", &Height)
+			}
 			for Bombs >= Width * Height {
-				fmt.Println("Bombs must be less than Width * Height.")
-				fmt.Print("Bombs: ") ; fmt.Scanf("%d\n", &Bombs)
+				fmt.Printf("Bombs must be less than Width * Height.\nBombs: ")
+				fmt.Scanf("%d\n", &Bombs)
 			}
 			// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
 	}
@@ -371,7 +380,7 @@ func SetDifficulty(Chosen int) {
 func main() {
 	ebiten.SetScreenClearedEveryFrame(false)
 
-	var Theme string = "ClassicXP"
+	var Theme string = "beetrootpaul"
 	
 	IndexFile, Error := os.Open(Theme + ".png") // Check if this is even openable/exists?
 	defer IndexFile.Close() // I should check for if it fails to close.
@@ -397,7 +406,9 @@ func main() {
 4. (C)ustom       WxH   B
 `)
 	var Difficulty rune
+	InvalidDifficultyEntered:
 	_, Error = fmt.Scanf("%c\n", &Difficulty)
+	// fmt.Scanf("%c\n", &Difficulty)
 	// Sterilize this
 	if Error != nil { fmt.Println(Error) }
 	switch Difficulty {
@@ -405,6 +416,9 @@ func main() {
 		case 'I', 'i', '2' : SetDifficulty(2)
 		case 'E', 'e', '3' : SetDifficulty(3)
 		case 'C', 'c', '4' : SetDifficulty(4)
+		default:
+			fmt.Println("Enter a valid difficulty, by # or (case insensitive) letter.")
+			goto InvalidDifficultyEntered
 	}
 	fmt.Printf("Bombs: %d\nTime: 0\n", Bombs)
 
@@ -418,6 +432,9 @@ func main() {
 	// InitGameBoards runs on the first click; check in Update for when GameState == 0
 	// Board is in (X, Y), starts at 0, 0 at top left.
 	// Other work needs to know the location of the first click.
+	
+	ticker = time.NewTicker( time.Second )
+	// This is so that if the user resets before they've clicked, there's a ticker to stop. Otherwise, I'm running .Stop() on something that doesn't exist.
 
 	ebiten.SetWindowTitle("Minesweeper Clone")
 	if Error = ebiten.RunGame( &Game{} ) ; Error != nil {
@@ -431,6 +448,31 @@ func (Minefield *Game)  Draw(Screen *ebiten.Image) {
 			Location.GeoM.Reset()
 			Location.GeoM.Translate(float64(Hori*TileSizeX), float64(Vert*TileSizeY))
 			TileIndex := int(DisplayBoard[Hori][Vert])
+
+			// Hollow tiles
+			// Put here because I don't want to have to track or modify the DisplayBoard
+			// xt, yt := GetTiles()
+			if Digging.isHeld {
+				if xt, yt := GetTiles() ; Hori == xt && Vert == yt {
+					if TileIndex == 10 {
+						TileIndex = 0
+					}
+				}
+			}
+
+			if Sweeping.isHeld {
+				ValidLocs := InBoundsTilesAround(GetTiles())
+				for Dropper := 0 ; Dropper < len(ValidLocs) ; Dropper += 2 {
+					if Hori == ValidLocs[Dropper] && Vert == ValidLocs[Dropper+1] {
+						if TileIndex == 10 {
+							TileIndex = 0
+						}
+					}
+				}
+			}
+			
+			// if xt, yt := GetTiles() ; Digging.isHeld && Hori == xt && Vert == yt && TileIndex == 10 { TileIndex = 0 }
+			// Might be better? I don't know.
 			Rect := image.Rectangle{
 				image.Point{0, (TileSizeY * TileIndex)},
 				image.Point{TileSizeX, (TileSizeY * (TileIndex + 1))}}
