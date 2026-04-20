@@ -113,10 +113,6 @@ func (game *Game) exploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 	}
 }
 
-
-var(
-)
-
 func (game *Game) Update() error {
 	for _, A := range [4]*Action{&game.Digging, &game.Sweeping, &game.Flagging, &game.Resetting} { // Are pointers correct here?
 		A.WasHeld = A.IsHeld
@@ -204,9 +200,6 @@ func (game *Game) Update() error {
 func (game *Game) Layout(RealWidth, RealHeight int) (LogicalWidth, LogicalHeight int){
 	return game.TileSizeX * game.Width, game.TileSizeY * game.Height
 }
-
-var(
-)
 
 type coord struct {
 	X, Y int
