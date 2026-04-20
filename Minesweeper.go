@@ -46,24 +46,24 @@ func (game *Game) GetTiles() (tileX, tileY int) {
 }
 
 func (game *Game) Dig(TileX, TileY int) {
-	if game.displayBoard[TileX][TileY] != 10 { return }
+	if game.displayBoard[TileX][TileY] != unclickedTile { return }
 	switch game.proximityBoard[TileX][TileY] {
-			case 0:
+			case emptyTile:
 				game.displayBoard[TileX][TileY] = 0
 				game.exploreEmpty(TileX, TileY, TileX, TileY)
 
-			case 9:
+			case bombTile:
 				game.ticker.Stop()
 				fmt.Printf("\x1b[1A\x1b[2KTime: %.2f\x1b[1B\r", time.Now().Sub(game.firstClickTime).Seconds() )
 				fmt.Println("GAME OVER")
 				game.gameState++
-				game.displayBoard[TileX][TileY] = 12
+				game.displayBoard[TileX][TileY] = explodedTile
 				for H := range game.Width {
 					for V := range game.Height {
-						if game.proximityBoard[H][V] == 9 {
-							if game.displayBoard[H][V] == 10 { game.displayBoard[H][V] = 9 }
-						} else if game.displayBoard[H][V] == 11 {
-							game.displayBoard[H][V] = 13
+						if game.proximityBoard[H][V] == bombTile {
+							if game.displayBoard[H][V] == unclickedTile { game.displayBoard[H][V] = 9 }
+						} else if game.displayBoard[H][V] == flaggedTile {
+							game.displayBoard[H][V] = flaggedWrongNotBombTile
 						}
 					}
 				}
@@ -72,12 +72,12 @@ func (game *Game) Dig(TileX, TileY int) {
 			}
 }
 
-func (game *Game) Flag(TileX, TileY int) {
-	if game.displayBoard[TileX][TileY] == 10 {
-		game.displayBoard[TileX][TileY] = 11
+func (game *Game) Flag(TileX, TileY int) {	
+	if game.displayBoard[TileX][TileY] == unclickedTile {
+		game.displayBoard[TileX][TileY] = flaggedTile
 		game.flagged++
-	} else if game.displayBoard[TileX][TileY] == 11 {
-		game.displayBoard[TileX][TileY] = 10
+	} else if game.displayBoard[TileX][TileY] == flaggedTile {
+		game.displayBoard[TileX][TileY] = unclickedTile
 		game.flagged--
 	}
 	// I may want to make this some sort of channel?
@@ -86,15 +86,15 @@ func (game *Game) Flag(TileX, TileY int) {
 
 func (game *Game) Sweep(TileX, TileY int) {
 	// Should probably have a "selectedtile" var here or smth.
-	if game.proximityBoard[TileX][TileY] > 7 || game.proximityBoard[TileX][TileY] == 0 { return } //If it's less than 0, it should only be revealed as everything around it is cleared, so not needed. Obviously, uncovering a bomb ends the game. And if the tile is an 8, there's no point to counting up the tiles, since it won't have anywhere to dig.
+	if game.proximityBoard[TileX][TileY] >= 8 || game.proximityBoard[TileX][TileY] == unclickedTile { return } //If it's less than 0, it should only be revealed as everything around it is cleared, so not needed. Obviously, uncovering a bomb ends the game. And if the tile is an 8, there's no point to counting up the tiles, since it won't have anywhere to dig.
 		
 	var targetFlagNum = game.proximityBoard[TileX][TileY]
 	for _, Dropper := range game.inBoundsTilesAround(TileX, TileY) {
-		if game.displayBoard[Dropper.X][Dropper.Y] == 11 { targetFlagNum-- }
+		if game.displayBoard[Dropper.X][Dropper.Y] == flaggedTile { targetFlagNum-- }
 	}
 	if targetFlagNum == 0 {
 		for _, dropper := range game.inBoundsTilesAround(TileX, TileY) {
-			if game.displayBoard[dropper.X][dropper.Y] == 10 {
+			if game.displayBoard[dropper.X][dropper.Y] == unclickedTile {
 				game.Dig(dropper.X, dropper.Y)
 			}
 		}
@@ -105,10 +105,10 @@ func (game *Game) exploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 	var H, V int
 	for _, dropper := range game.inBoundsTilesAround(Xclicked, Yclicked) {
 		H, V = dropper.X, dropper.Y
-		if game.displayBoard[H][V] == 10 {
+		if game.displayBoard[H][V] == unclickedTile {
 			game.displayBoard[H][V] = game.proximityBoard[H][V]
 			// Could try to insert the tile counter here, it depends on if this recounts itself.
-			if game.proximityBoard[H][V] == 0 { game.exploreEmpty(H, V, Xclicked, Yclicked) } 
+			if game.proximityBoard[H][V] == emptyTile { game.exploreEmpty(H, V, Xclicked, Yclicked) } 
 		}
 	}
 }
@@ -183,7 +183,7 @@ func (game *Game) Update() error {
 	var uncleared int
 	for H := range game.Width {
 		for V := range game.Height {
-			if game.displayBoard[H][V] > 9 { uncleared++ }
+			if game.displayBoard[H][V] > bombTile { uncleared++ }
 		}
 	}
 	if uncleared == game.Bombs {
@@ -208,6 +208,7 @@ type coord struct {
 func (game *Game) inBoundsTilesAround(Xclicked, Yclicked int) (Locations []coord) {
 	// Is there a way to make this some sort of iterator?
 	// Assumes the clicked tile is inbounds
+	// FIX????
 	for H := range 3 {
 		H += Xclicked - 1
 		if (H < 0) || (H == game.Width) {continue}
@@ -227,7 +228,7 @@ func (game *Game) iniDisplayBoard() {
 		game.displayBoard[i] = make([]int8, game.Height)
 		
 		for Tiler := range game.Height {
-			game.displayBoard[i][Tiler] = 10
+			game.displayBoard[i][Tiler] = unclickedTile
 		}
 	}
 	
@@ -264,12 +265,12 @@ func (game *Game) iniGameBoards (Xclicked, Yclicked int) {
 		game.bombBoard [ BombLocX ] [ BombLocY ] = true
 
 		for _, validLocs := range game.inBoundsTilesAround(BombLocX, BombLocY) {
-			if game.proximityBoard[validLocs.X][validLocs.Y] < 9 {
+			if game.proximityBoard[validLocs.X][validLocs.Y] < bombTile {
 				game.proximityBoard[validLocs.X][validLocs.Y]++
 			}
 		}
 
-		game.proximityBoard [ BombLocX ] [ BombLocY ] = 9
+		game.proximityBoard [ BombLocX ] [ BombLocY ] = bombTile
 
 	}
 }
@@ -287,11 +288,11 @@ func (game *Game) BechtelValue() (Clicks int) {
 			if Cleared[H][V] { continue }
 			Cleared[H][V] = true
 			switch game.proximityBoard[H][V] {
-				case 9: continue // Bombs aren't counted, obviously
-				case 0: // This is where I have to do the flood fill sweeping thing.
+				case bombTile: continue // Bombs aren't counted, obviously
+				case emptyTile: // This is where I have to do the flood fill sweeping thing.
 					aroundZero := false // I deviated from the implementation here, but I thought this was clever.
 					for _, Surrounding := range game.inBoundsTilesAround(H, V) {
-						if Cleared[Surrounding.X][Surrounding.Y] && game.proximityBoard[Surrounding.X][Surrounding.Y] == 0 {
+						if Cleared[Surrounding.X][Surrounding.Y] && game.proximityBoard[Surrounding.X][Surrounding.Y] == emptyTile {
 							Cleared[H][V] = true
 							aroundZero = true
 							continue
@@ -302,7 +303,10 @@ func (game *Game) BechtelValue() (Clicks int) {
 				default:
 					aroundZero := false
 					for _, i := range game.inBoundsTilesAround(H, V) {
-						if game.proximityBoard[i.X][i.Y] == 0 { aroundZero = true ; continue }
+						if game.proximityBoard[i.X][i.Y] == emptyTile {
+							aroundZero = true
+							continue
+						}
 					}
 					if !aroundZero { Clicks++ }	
 					
@@ -354,15 +358,17 @@ func main() {
 	if Error != nil { fmt.Println(Error) }
 	game.index = ebiten.NewImageFromImage(IndexImage)
 
+	const tilesPerIndex int = 14
+	
 	game.TileSizeX, game.TileSizeY = game.index.Bounds().Max.X, game.index.Bounds().Max.Y
-	if game.TileSizeY % 14 != 0 {
+	if game.TileSizeY % tilesPerIndex != 0 {
+		// If there isn't a multiple of 14 pixels vertically, there aren't 14 evenly sized tiles.
 		fmt.Println("Malformed tileset error")
-		//FIGURE OUT WAY TO END GAME
+		return
 	} else {
-		game.TileSizeY /= 14
+		game.TileSizeY /= tilesPerIndex
 	}
 
-	
 	// ebiten.KeyNumpad0 will be the "dummy" key: it still works, it's just there to display that KB keys can't be used.
 	game.Digging = Action {
 		UsesButtons: true,
@@ -430,23 +436,34 @@ func main() {
 	ebiten.SetWindowTitle("Minesweeper Clone")
 	if Error = ebiten.RunGame( game ) ; Error != nil {
 		fmt.Println(Error)
+		panic(Error)
 	}
 }
+
+const(
+	// This is for the tile index
+	emptyTile int8 = 0
+	// Tiles 1-8 are as they would seem.
+	bombTile int8 = 9
+	unclickedTile int8 = 10
+	flaggedTile int8 = 11
+	explodedTile int8 = 12
+	flaggedWrongNotBombTile int8 = 13
+)
 
 func (game *Game)  Draw(Screen *ebiten.Image) {	
 	for Hori := range game.Width {
 		for Vert := range game.Height {
 			game.Location.GeoM.Reset()
 			game.Location.GeoM.Translate(float64(Hori*game.TileSizeX), float64(Vert*game.TileSizeY))
-			tileIndex := int(game.displayBoard[Hori][Vert])
+			tileIndex := game.displayBoard[Hori][Vert]
 
 			// Hollow tiles
 			// Put here because I don't want to have to track or modify the DisplayBoard
-			// xt, yt := GetTiles()
 			if game.Digging.IsHeld {
 				if xt, yt := game.GetTiles() ; Hori == xt && Vert == yt {
-					if tileIndex == 10 {
-						tileIndex = 0
+					if tileIndex == unclickedTile {
+						tileIndex = emptyTile
 					}
 				}
 			}
@@ -454,8 +471,8 @@ func (game *Game)  Draw(Screen *ebiten.Image) {
 			if game.Sweeping.IsHeld {
 				for _, validLocs := range game.inBoundsTilesAround(game.GetTiles()) {
 					if Hori == validLocs.X && Vert == validLocs.Y {
-						if tileIndex == 10 {
-							tileIndex = 0
+						if tileIndex == unclickedTile {
+							tileIndex = emptyTile
 						}
 					}
 				}
@@ -464,8 +481,8 @@ func (game *Game)  Draw(Screen *ebiten.Image) {
 			// if xt, yt := GetTiles() ; Digging.isHeld && Hori == xt && Vert == yt && TileIndex == 10 { TileIndex = 0 }
 			// Might be better? I don't know.
 			Rect := image.Rectangle{
-				image.Point{0, (game.TileSizeY * tileIndex)},
-				image.Point{game.TileSizeX, (game.TileSizeY * (tileIndex + 1))}}
+				image.Point{0, (game.TileSizeY * int(tileIndex))},
+				image.Point{game.TileSizeX, (game.TileSizeY * int(tileIndex + 1))}}
 	
 			//DisplayBoard[Hori][Vert] contains the "index" of tile we need to render.
 			TileToDraw := game.index.SubImage(Rect).(*ebiten.Image)
