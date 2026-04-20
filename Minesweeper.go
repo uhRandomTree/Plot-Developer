@@ -24,7 +24,7 @@ func Dig(TileX, TileY int) {
 	switch proximityBoard[TileX][TileY] {
 			case 0:
 				displayBoard[TileX][TileY] = 0
-				ExploreEmpty(TileX, TileY, TileX, TileY)
+				exploreEmpty(TileX, TileY, TileX, TileY)
 
 			case 9:
 				ticker.Stop()
@@ -49,48 +49,47 @@ func Dig(TileX, TileY int) {
 func Flag(TileX, TileY int) {
 	if displayBoard[TileX][TileY] == 10 {
 		displayBoard[TileX][TileY] = 11
-		Flagged++
+		flagged++
 	} else if displayBoard[TileX][TileY] == 11 {
 		displayBoard[TileX][TileY] = 10
-		Flagged--
+		flagged--
 	}
 	// I may want to make this some sort of channel?
-	fmt.Printf("\x1b[2A\x1b[2KBombs: %d\x1b[2B\r", Bombs-Flagged)
+	fmt.Printf("\x1b[2A\x1b[2KBombs: %d\x1b[2B\r", Bombs-flagged)
 }
 
 func Sweep(TileX, TileY int) {
-	// validLocs := InBoundsTilesAround(TileX, TileY)
-	//Should probably have a "selectedtile" var here or smth.
+	// Should probably have a "selectedtile" var here or smth.
 	if proximityBoard[TileX][TileY] > 7 || proximityBoard[TileX][TileY] == 0 { return } //If it's less than 0, it should only be revealed as everything around it is cleared, so not needed. Obviously, uncovering a bomb ends the game. And if the tile is an 8, there's no point to counting up the tiles, since it won't have anywhere to dig.
 		
-	var TargetFlagNum = proximityBoard[TileX][TileY]
-	for _, Dropper := range InBoundsTilesAround(TileX, TileY) {
-		if displayBoard[Dropper.X][Dropper.Y] == 11 { TargetFlagNum-- }
+	var targetFlagNum = proximityBoard[TileX][TileY]
+	for _, Dropper := range inBoundsTilesAround(TileX, TileY) {
+		if displayBoard[Dropper.X][Dropper.Y] == 11 { targetFlagNum-- }
 	}
-	if TargetFlagNum == 0 {
-		for _, Dropper := range InBoundsTilesAround(TileX, TileY) {
-			if displayBoard[Dropper.X][Dropper.Y] == 10 {
-				Dig(Dropper.X, Dropper.Y)
+	if targetFlagNum == 0 {
+		for _, dropper := range inBoundsTilesAround(TileX, TileY) {
+			if displayBoard[dropper.X][dropper.Y] == 10 {
+				Dig(dropper.X, dropper.Y)
 			}
 		}
 	}
 }
 
-func ExploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
+func exploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
 	var H, V int
-	for _, Dropper := range InBoundsTilesAround(Xclicked, Yclicked) {
-		H, V = Dropper.X, Dropper.Y
+	for _, dropper := range inBoundsTilesAround(Xclicked, Yclicked) {
+		H, V = dropper.X, dropper.Y
 		if displayBoard[H][V] == 10 {
 			displayBoard[H][V] = proximityBoard[H][V]
 			// Could try to insert the tile counter here, it depends on if this recounts itself.
-			if proximityBoard[H][V] == 0 { ExploreEmpty(H, V, Xclicked, Yclicked) } 
+			if proximityBoard[H][V] == 0 { exploreEmpty(H, V, Xclicked, Yclicked) } 
 		}
 	}
 }
 
 
 var (
-	Flagged int
+	flagged int
 	gameState int8 // 0 is on first click, 1 is actively playing, 2 is over
 	ResetTo int
 	ticker *time.Ticker
@@ -99,39 +98,39 @@ var (
 )
 
 type Action struct {
-	isHeld bool
-	wasHeld bool // Last tick
-	usesButtons bool
-	usesKeys bool
-	buttons ebiten.MouseButton
-	keys ebiten.Key
+	IsHeld bool
+	WasHeld bool // Last tick
+	UsesButtons bool
+	UsesKeys bool
+	Buttons ebiten.MouseButton
+	Keys ebiten.Key
 }
 // I'm sure something clever could be done with channels
 
 var(
 	Digging = Action {
-		usesButtons: true,
-		buttons: ebiten.MouseButton0,
-		usesKeys: false,
-		keys: ebiten.KeyNumpad0,
+		UsesButtons: true,
+		Buttons: ebiten.MouseButton0,
+		UsesKeys: false,
+		Keys: ebiten.KeyNumpad0,
 	}
 	Sweeping = Action {
-		usesButtons: true,
-		buttons: ebiten.MouseButton1,
-		usesKeys: false,
-		keys: ebiten.KeyNumpad0,
+		UsesButtons: true,
+		Buttons: ebiten.MouseButton1,
+		UsesKeys: false,
+		Keys: ebiten.KeyNumpad0,
 	}
 	Flagging = Action {
-		usesButtons: true,
-		buttons: ebiten.MouseButton2,
-		usesKeys: false,
-		keys: ebiten.KeyNumpad0,
+		UsesButtons: true,
+		Buttons: ebiten.MouseButton2,
+		UsesKeys: false,
+		Keys: ebiten.KeyNumpad0,
 	}
 	Resetting = Action {
-		usesButtons: true,
-		buttons: ebiten.MouseButton4,
-		usesKeys: true,
-		keys: ebiten.KeyR,
+		UsesButtons: true,
+		Buttons: ebiten.MouseButton4,
+		UsesKeys: true,
+		Keys: ebiten.KeyR,
 	}
 	// Should I bother making a quitting action?
 	// Probably :(
@@ -140,17 +139,17 @@ var(
 
 func (Minefield *Game) Update() error {
 	for _, A := range [4]*Action{&Digging, &Sweeping, &Flagging, &Resetting} { // Are pointers correct here?
-		A.wasHeld = A.isHeld
-		A.isHeld = false
-		if A.usesButtons {
-			if ebiten.IsMouseButtonPressed(A.buttons) { A.isHeld = true }
+		A.WasHeld = A.IsHeld
+		A.IsHeld = false
+		if A.UsesButtons {
+			if ebiten.IsMouseButtonPressed(A.Buttons) { A.IsHeld = true }
 		}
-		if A.usesKeys {
-			if ebiten.IsKeyPressed(A.keys) { A.isHeld = true }
+		if A.UsesKeys {
+			if ebiten.IsKeyPressed(A.Keys) { A.IsHeld = true }
 		}
 	}
 
-	if Resetting.isHeld {
+	if Resetting.IsHeld {
 		if ebiten.IsKeyPressed(ebiten.Key1) { ResetTo = 1 }
 		if ebiten.IsKeyPressed(ebiten.Key2) { ResetTo = 2 }
 		if ebiten.IsKeyPressed(ebiten.Key3) { ResetTo = 3 }
@@ -158,10 +157,10 @@ func (Minefield *Game) Update() error {
 		// These can be action keys, but I just don't think it matters. The user is resetting anyways.
 	}
 
-	if !Resetting.isHeld && Resetting.wasHeld {
+	if !Resetting.IsHeld && Resetting.WasHeld {
 		// RESET
 		gameState = 0
-		Flagged = 0
+		flagged = 0
 		SetDifficulty(ResetTo)
 		if ResetTo == 4 { ResetTo = 0 }
 		displayBoard = iniDisplayBoard(Width, Height)
@@ -172,17 +171,17 @@ func (Minefield *Game) Update() error {
 	
 	if gameState == 2 { return nil }
 
-	if Digging.isHeld && Flagging.isHeld { // Chording. Should I have a special case where I look at the actual keys? What maps better in the brain lol.
-		Digging.isHeld = false ; Flagging.isHeld = false
-		Sweeping.isHeld = true
+	if Digging.IsHeld && Flagging.IsHeld { // Chording. Should I have a special case where I look at the actual keys? What maps better in the brain lol.
+		Digging.IsHeld = false ; Flagging.IsHeld = false
+		Sweeping.IsHeld = true
 	}
 	// check if the above works
 	// Also check for the other combos.
-	if !Digging.isHeld && Digging.wasHeld {
+	if !Digging.IsHeld && Digging.WasHeld {
 		if gameState == 0 {
 			ClX, ClY := GetTiles()
 			// I imagine there's a better way to do this
-			proximityBoard, bombBoard = IniGameBoards(ClX, ClY, Width, Height, Bombs)
+			proximityBoard, bombBoard = iniGameBoards(ClX, ClY, Width, Height, Bombs)
 			firstClickTime = time.Now()
 			gameState++
 			BechtelValue()
@@ -202,17 +201,17 @@ func (Minefield *Game) Update() error {
 		// Get the hollow tiles
 		Dig(GetTiles())
 	}
-	if !Sweeping.isHeld && Sweeping.wasHeld { Sweep(GetTiles()) } // Hollow tiles
-	if Flagging.isHeld && !Flagging.wasHeld { Flag(GetTiles()) }
+	if !Sweeping.IsHeld && Sweeping.WasHeld { Sweep(GetTiles()) } // Hollow tiles
+	if Flagging.IsHeld && !Flagging.WasHeld { Flag(GetTiles()) }
 
 	
-	var Uncleared int
+	var uncleared int
 	for H := range Width {
 		for V := range Height {
-			if displayBoard[H][V] > 9 { Uncleared++ }
+			if displayBoard[H][V] > 9 { uncleared++ }
 		}
 	}
-	if Uncleared == Bombs {
+	if uncleared == Bombs {
 		fmt.Printf("\x1b[1A\x1b[2KTime: %.2f\x1b[1B\r", time.Since(firstClickTime).Seconds() )
 		fmt.Println("3BV: ", BechtelValue())
 		fmt.Println("YOU WIN")
@@ -240,7 +239,7 @@ type coord struct {
 	X, Y int
 }
 
-func InBoundsTilesAround(Xclicked, Yclicked int) (Locations []coord) {
+func inBoundsTilesAround(Xclicked, Yclicked int) (Locations []coord) {
 	// Is there a way to make this some sort of iterator?
 	// Assumes the clicked tile is inbounds
 	for H := range 3 {
@@ -270,7 +269,7 @@ func iniDisplayBoard (Width, Height int) (DisplayBoard [][]int8) {
 	return DisplayBoard
 }
 
-func IniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (ProximityBoard [][]int8, BombBoard [][]bool) {
+func iniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (ProximityBoard [][]int8, BombBoard [][]bool) {
 
 	BombBoard = make([][]bool, Width)
 	ProximityBoard = make([][]int8, Width)
@@ -298,7 +297,7 @@ func IniGameBoards (Xclicked, Yclicked, Width, Height, Bombs int) (ProximityBoar
 		BombLocX, BombLocY = BombLocation % Width, BombLocation / Width
 		BombBoard [ BombLocX ] [ BombLocY ] = true
 
-		for _, validLocs := range InBoundsTilesAround(BombLocX, BombLocY) {
+		for _, validLocs := range inBoundsTilesAround(BombLocX, BombLocY) {
 			if ProximityBoard[validLocs.X][validLocs.Y] < 9 {
 				ProximityBoard[validLocs.X][validLocs.Y]++
 			}
@@ -326,7 +325,7 @@ func BechtelValue() (Clicks int) {
 				case 9: continue // Bombs aren't counted, obviously
 				case 0: // This is where I have to do the flood fill sweeping thing.
 					aroundZero := false // I deviated from the implementation here, but I thought this was clever.
-					for _, Surrounding := range InBoundsTilesAround(H, V) {
+					for _, Surrounding := range inBoundsTilesAround(H, V) {
 						if Cleared[Surrounding.X][Surrounding.Y] && proximityBoard[Surrounding.X][Surrounding.Y] == 0 {
 							Cleared[H][V] = true
 							aroundZero = true
@@ -337,7 +336,7 @@ func BechtelValue() (Clicks int) {
 					// These are very similar, I should do something about that.
 				default:
 					aroundZero := false
-					for _, i := range InBoundsTilesAround(H, V) {
+					for _, i := range inBoundsTilesAround(H, V) {
 						if proximityBoard[i.X][i.Y] == 0 { aroundZero = true ; continue }
 					}
 					if !aroundZero { Clicks++ }	
@@ -449,7 +448,7 @@ func (Minefield *Game)  Draw(Screen *ebiten.Image) {
 			// Hollow tiles
 			// Put here because I don't want to have to track or modify the DisplayBoard
 			// xt, yt := GetTiles()
-			if Digging.isHeld {
+			if Digging.IsHeld {
 				if xt, yt := GetTiles() ; Hori == xt && Vert == yt {
 					if tileIndex == 10 {
 						tileIndex = 0
@@ -457,8 +456,8 @@ func (Minefield *Game)  Draw(Screen *ebiten.Image) {
 				}
 			}
 
-			if Sweeping.isHeld {
-				for _, validLocs := range InBoundsTilesAround(GetTiles()) {
+			if Sweeping.IsHeld {
+				for _, validLocs := range inBoundsTilesAround(GetTiles()) {
 					if Hori == validLocs.X && Vert == validLocs.Y {
 						if tileIndex == 10 {
 							tileIndex = 0
