@@ -30,6 +30,56 @@ type Game struct{
 	// Defined in main()
 }
 
+const(
+	// This is for the tile index
+	emptyTile int8 = 0
+	// Tiles 1-8 are as they would seem.
+	bombTile int8 = 9
+	unclickedTile int8 = 10
+	flaggedTile int8 = 11
+	explodedTile int8 = 12
+	flaggedWrongNotBombTile int8 = 13
+)
+
+func (game *Game) iniGameBoards (Xclicked, Yclicked int) {
+
+	game.bombBoard = make([][]bool, game.Width)
+	game.proximityBoard = make([][]int8, game.Width)
+	
+	for i := range game.Width {
+		game.bombBoard[i] = make([]bool, game.Height)
+		game.proximityBoard[i] = make([]int8, game.Height)
+	}
+	
+	var BombPlace int = (Yclicked * game.Width) + Xclicked
+	var BombLocation, BombLocX, BombLocY int
+	var Spaces = game.Width * game.Height
+	
+	SRBombs := make([]int, Spaces)
+	Spaces--
+	for i := range Spaces { SRBombs[i] = i } // Can probably be done in one line, I don't know.
+
+	SRBombs = append(SRBombs[:BombPlace], SRBombs[BombPlace+1:]...)
+	
+	for i := range game.Bombs {
+		BombPlace = rand.IntN(Spaces - i)
+		BombLocation = SRBombs[BombPlace]
+		
+		SRBombs = append( SRBombs[:BombPlace], SRBombs[BombPlace+1:]... )
+		BombLocX, BombLocY = BombLocation % game.Width, BombLocation / game.Width
+		game.bombBoard [ BombLocX ] [ BombLocY ] = true
+
+		for _, validLocs := range game.inBoundsTilesAround(BombLocX, BombLocY) {
+			if game.proximityBoard[validLocs.X][validLocs.Y] < bombTile {
+				game.proximityBoard[validLocs.X][validLocs.Y]++
+			}
+		}
+
+		game.proximityBoard [ BombLocX ] [ BombLocY ] = bombTile
+
+	}
+}
+
 type Action struct {
 	IsHeld bool
 	WasHeld bool // Last tick
@@ -43,74 +93,6 @@ type Action struct {
 func (game *Game) GetTiles() (tileX, tileY int) {
 	ClickedPosX, ClickedPosY := ebiten.CursorPosition()		
 	return ClickedPosX / game.TileSizeX, ClickedPosY / game.TileSizeY
-}
-
-func (game *Game) Dig(TileX, TileY int) {
-	if game.displayBoard[TileX][TileY] != unclickedTile { return }
-	switch game.proximityBoard[TileX][TileY] {
-			case emptyTile:
-				game.displayBoard[TileX][TileY] = 0
-				game.exploreEmpty(TileX, TileY, TileX, TileY)
-
-			case bombTile:
-				game.ticker.Stop()
-				fmt.Printf("\x1b[1A\x1b[2KTime: %.2f\x1b[1B\r", time.Now().Sub(game.firstClickTime).Seconds() )
-				fmt.Println("GAME OVER")
-				game.gameState++
-				game.displayBoard[TileX][TileY] = explodedTile
-				for H := range game.Width {
-					for V := range game.Height {
-						if game.proximityBoard[H][V] == bombTile {
-							if game.displayBoard[H][V] == unclickedTile { game.displayBoard[H][V] = 9 }
-						} else if game.displayBoard[H][V] == flaggedTile {
-							game.displayBoard[H][V] = flaggedWrongNotBombTile
-						}
-					}
-				}
-			default:
-				game.displayBoard[TileX][TileY] = game.proximityBoard[TileX][TileY]
-			}
-}
-
-func (game *Game) Flag(TileX, TileY int) {	
-	if game.displayBoard[TileX][TileY] == unclickedTile {
-		game.displayBoard[TileX][TileY] = flaggedTile
-		game.flagged++
-	} else if game.displayBoard[TileX][TileY] == flaggedTile {
-		game.displayBoard[TileX][TileY] = unclickedTile
-		game.flagged--
-	}
-	// I may want to make this some sort of channel?
-	fmt.Printf("\x1b[2A\x1b[2KBombs: %d\x1b[2B\r", game.Bombs-game.flagged)
-}
-
-func (game *Game) Sweep(TileX, TileY int) {
-	// Should probably have a "selectedtile" var here or smth.
-	if game.proximityBoard[TileX][TileY] >= 8 || game.proximityBoard[TileX][TileY] == unclickedTile { return } //If it's less than 0, it should only be revealed as everything around it is cleared, so not needed. Obviously, uncovering a bomb ends the game. And if the tile is an 8, there's no point to counting up the tiles, since it won't have anywhere to dig.
-		
-	var targetFlagNum = game.proximityBoard[TileX][TileY]
-	for _, Dropper := range game.inBoundsTilesAround(TileX, TileY) {
-		if game.displayBoard[Dropper.X][Dropper.Y] == flaggedTile { targetFlagNum-- }
-	}
-	if targetFlagNum == 0 {
-		for _, dropper := range game.inBoundsTilesAround(TileX, TileY) {
-			if game.displayBoard[dropper.X][dropper.Y] == unclickedTile {
-				game.Dig(dropper.X, dropper.Y)
-			}
-		}
-	}
-}
-
-func (game *Game) exploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
-	var H, V int
-	for _, dropper := range game.inBoundsTilesAround(Xclicked, Yclicked) {
-		H, V = dropper.X, dropper.Y
-		if game.displayBoard[H][V] == unclickedTile {
-			game.displayBoard[H][V] = game.proximityBoard[H][V]
-			// Could try to insert the tile counter here, it depends on if this recounts itself.
-			if game.proximityBoard[H][V] == emptyTile { game.exploreEmpty(H, V, Xclicked, Yclicked) } 
-		}
-	}
 }
 
 func (game *Game) Update() error {
@@ -197,148 +179,71 @@ func (game *Game) Update() error {
 	return nil
 }
 
-func (game *Game) Layout(RealWidth, RealHeight int) (LogicalWidth, LogicalHeight int){
-	return game.TileSizeX * game.Width, game.TileSizeY * game.Height
-}
+func (game *Game) Dig(TileX, TileY int) {
+	if game.displayBoard[TileX][TileY] != unclickedTile { return }
+	switch game.proximityBoard[TileX][TileY] {
+			case emptyTile:
+				game.displayBoard[TileX][TileY] = 0
+				game.exploreEmpty(TileX, TileY, TileX, TileY)
 
-type coord struct {
-	X, Y int
-}
-
-func (game *Game) inBoundsTilesAround(Xclicked, Yclicked int) (Locations []coord) {
-	// Is there a way to make this some sort of iterator?
-	// Assumes the clicked tile is inbounds
-	// FIX????
-	for H := range 3 {
-		H += Xclicked - 1
-		if (H < 0) || (H == game.Width) {continue}
-		for V := range 3 {
-			if (H == Xclicked) && (V == 1) {continue}
-			V += Yclicked - 1
-			if (V < 0) || (V == game.Height) {continue}
-			Locations = append(Locations, coord{H, V})
-		}
-	}
-	return Locations
-}
-
-func (game *Game) iniDisplayBoard() {
-	game.displayBoard = make([][]int8, game.Width)
-	for i := range game.Width {
-		game.displayBoard[i] = make([]int8, game.Height)
-		
-		for Tiler := range game.Height {
-			game.displayBoard[i][Tiler] = unclickedTile
-		}
-	}
-	
-	const ScaleConst int = 2
-	ebiten.SetWindowSize(game.TileSizeX*game.Width*ScaleConst, game.TileSizeY*game.Height*ScaleConst) //to whatever real size we want it to display as.
-}
-
-func (game *Game) iniGameBoards (Xclicked, Yclicked int) {
-
-	game.bombBoard = make([][]bool, game.Width)
-	game.proximityBoard = make([][]int8, game.Width)
-	
-	for i := range game.Width {
-		game.bombBoard[i] = make([]bool, game.Height)
-		game.proximityBoard[i] = make([]int8, game.Height)
-	}
-	
-	var BombPlace int = (Yclicked * game.Width) + Xclicked
-	var BombLocation, BombLocX, BombLocY int
-	var Spaces = game.Width * game.Height
-	
-	SRBombs := make([]int, Spaces)
-	Spaces--
-	for i := range Spaces { SRBombs[i] = i } // Can probably be done in one line, I don't know.
-
-	SRBombs = append(SRBombs[:BombPlace], SRBombs[BombPlace+1:]...)
-	
-	for i := range game.Bombs {
-		BombPlace = rand.IntN(Spaces - i)
-		BombLocation = SRBombs[BombPlace]
-		
-		SRBombs = append( SRBombs[:BombPlace], SRBombs[BombPlace+1:]... )
-		BombLocX, BombLocY = BombLocation % game.Width, BombLocation / game.Width
-		game.bombBoard [ BombLocX ] [ BombLocY ] = true
-
-		for _, validLocs := range game.inBoundsTilesAround(BombLocX, BombLocY) {
-			if game.proximityBoard[validLocs.X][validLocs.Y] < bombTile {
-				game.proximityBoard[validLocs.X][validLocs.Y]++
-			}
-		}
-
-		game.proximityBoard [ BombLocX ] [ BombLocY ] = bombTile
-
-	}
-}
-
-func (game *Game) BechtelValue() (Clicks int) {
-	// Implementation slightly inspired by:
-	// https://gamedev.stackexchange.com/questions/63046/how-should-i-calculate-the-score-in-minesweeper-3bv-or-3bv-s
-	var Cleared = make([][]bool, game.Width)
-	for i := range game.Width {
-		Cleared[i] = make([]bool, game.Height)
-	}
-	
-	for V := range game.Height {
-		for H := range game.Width {
-			if Cleared[H][V] { continue }
-			Cleared[H][V] = true
-			switch game.proximityBoard[H][V] {
-				case bombTile: continue // Bombs aren't counted, obviously
-				case emptyTile: // This is where I have to do the flood fill sweeping thing.
-					aroundZero := false // I deviated from the implementation here, but I thought this was clever.
-					for _, Surrounding := range game.inBoundsTilesAround(H, V) {
-						if Cleared[Surrounding.X][Surrounding.Y] && game.proximityBoard[Surrounding.X][Surrounding.Y] == emptyTile {
-							Cleared[H][V] = true
-							aroundZero = true
-							continue
+			case bombTile:
+				game.ticker.Stop()
+				fmt.Printf("\x1b[1A\x1b[2KTime: %.2f\x1b[1B\r", time.Now().Sub(game.firstClickTime).Seconds() )
+				fmt.Println("GAME OVER")
+				game.gameState++
+				game.displayBoard[TileX][TileY] = explodedTile
+				for H := range game.Width {
+					for V := range game.Height {
+						if game.proximityBoard[H][V] == bombTile {
+							if game.displayBoard[H][V] == unclickedTile { game.displayBoard[H][V] = 9 }
+						} else if game.displayBoard[H][V] == flaggedTile {
+							game.displayBoard[H][V] = flaggedWrongNotBombTile
 						}
 					}
-					if !aroundZero { Clicks++ }
-					// These are very similar, I should do something about that.
-				default:
-					aroundZero := false
-					for _, i := range game.inBoundsTilesAround(H, V) {
-						if game.proximityBoard[i.X][i.Y] == emptyTile {
-							aroundZero = true
-							continue
-						}
-					}
-					if !aroundZero { Clicks++ }	
-					
+				}
+			default:
+				game.displayBoard[TileX][TileY] = game.proximityBoard[TileX][TileY]
 			}
-		}			
-	}
-	return Clicks // Could (should?) do a naked return, but better for readability.
 }
 
-func (game *Game) SetDifficulty(Chosen int) {
-	// 1..4: Beginner 8x8 10, Intermediate 16x16 40, Expert 30x16 99, Custom WxH B
-	switch Chosen {
-		case 1 : game.Width, game.Height, game.Bombs = 8, 8, 10
-		case 2 : game.Width, game.Height, game.Bombs = 16, 16, 40
-		case 3 : game.Width, game.Height, game.Bombs = 30, 16, 99
-		case 4 :
-			fmt.Print("In the format WxH B: ")
-			fmt.Scanf("%dx%d %d", &game.Width, &game.Height, &game.Bombs)// Does this need a \n?
-			// I should probably check for errors
-			for game.Width <= 0 {
-				fmt.Printf("Dimensions must be >= 0.\nWidth: ")
-				fmt.Scanf("%d\n", &game.Width)
+func (game *Game) Flag(TileX, TileY int) {	
+	if game.displayBoard[TileX][TileY] == unclickedTile {
+		game.displayBoard[TileX][TileY] = flaggedTile
+		game.flagged++
+	} else if game.displayBoard[TileX][TileY] == flaggedTile {
+		game.displayBoard[TileX][TileY] = unclickedTile
+		game.flagged--
+	}
+	// I may want to make this some sort of channel?
+	fmt.Printf("\x1b[2A\x1b[2KBombs: %d\x1b[2B\r", game.Bombs-game.flagged)
+}
+
+func (game *Game) Sweep(TileX, TileY int) {
+	// Should probably have a "selectedtile" var here or smth.
+	if game.proximityBoard[TileX][TileY] >= 8 || game.proximityBoard[TileX][TileY] == unclickedTile { return } //If it's less than 0, it should only be revealed as everything around it is cleared, so not needed. Obviously, uncovering a bomb ends the game. And if the tile is an 8, there's no point to counting up the tiles, since it won't have anywhere to dig.
+		
+	var targetFlagNum = game.proximityBoard[TileX][TileY]
+	for _, Dropper := range game.inBoundsTilesAround(TileX, TileY) {
+		if game.displayBoard[Dropper.X][Dropper.Y] == flaggedTile { targetFlagNum-- }
+	}
+	if targetFlagNum == 0 {
+		for _, dropper := range game.inBoundsTilesAround(TileX, TileY) {
+			if game.displayBoard[dropper.X][dropper.Y] == unclickedTile {
+				game.Dig(dropper.X, dropper.Y)
 			}
-			for game.Height <= 0 {
-				fmt.Printf("Dimensions must be >= 0.\nHeight: ")
-				fmt.Scanf("%d\n", &game.Height)
-			}
-			for game.Bombs >= game.Width * game.Height {
-				fmt.Printf("Bombs must be less than Width * Height.\nBombs: ")
-				fmt.Scanf("%d\n", &game.Bombs)
-			}
-			// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+		}
+	}
+}
+
+func (game *Game) exploreEmpty (Xclicked, Yclicked, Xfrom, Yfrom int) {
+	var H, V int
+	for _, dropper := range game.inBoundsTilesAround(Xclicked, Yclicked) {
+		H, V = dropper.X, dropper.Y
+		if game.displayBoard[H][V] == unclickedTile {
+			game.displayBoard[H][V] = game.proximityBoard[H][V]
+			// Could try to insert the tile counter here, it depends on if this recounts itself.
+			if game.proximityBoard[H][V] == emptyTile { game.exploreEmpty(H, V, Xclicked, Yclicked) } 
+		}
 	}
 }
 
@@ -440,39 +345,136 @@ func main() {
 	}
 }
 
-const(
-	// This is for the tile index
-	emptyTile int8 = 0
-	// Tiles 1-8 are as they would seem.
-	bombTile int8 = 9
-	unclickedTile int8 = 10
-	flaggedTile int8 = 11
-	explodedTile int8 = 12
-	flaggedWrongNotBombTile int8 = 13
-)
+func (game *Game) Layout(RealWidth, RealHeight int) (LogicalWidth, LogicalHeight int){
+	return game.TileSizeX * game.Width, game.TileSizeY * game.Height
+}
 
-func (game *Game)  Draw(Screen *ebiten.Image) {	
+type coord struct {
+	X, Y int
+}
+
+func (game *Game) inBoundsTilesAround(Xclicked, Yclicked int) (Locations []coord) {
+	// Is there a way to make this some sort of iterator?
+	// Assumes the clicked tile is inbounds
+	// FIX????
+	for H := range 3 {
+		H += Xclicked - 1
+		if (H < 0) || (H == game.Width) {continue}
+		for V := range 3 {
+			if (H == Xclicked) && (V == 1) {continue}
+			V += Yclicked - 1
+			if (V < 0) || (V == game.Height) {continue}
+			Locations = append(Locations, coord{H, V})
+		}
+	}
+	return Locations
+}
+
+func (game *Game) iniDisplayBoard() {
+	game.displayBoard = make([][]int8, game.Width)
+	for i := range game.Width {
+		game.displayBoard[i] = make([]int8, game.Height)
+		
+		for Tiler := range game.Height {
+			game.displayBoard[i][Tiler] = unclickedTile
+		}
+	}
+	
+	const ScaleConst int = 2
+	ebiten.SetWindowSize(game.TileSizeX*game.Width*ScaleConst, game.TileSizeY*game.Height*ScaleConst) //to whatever real size we want it to display as.
+}
+
+func (game *Game) BechtelValue() (Clicks int) {
+	// Implementation slightly inspired by:
+	// https://gamedev.stackexchange.com/questions/63046/how-should-i-calculate-the-score-in-minesweeper-3bv-or-3bv-s
+	var Cleared = make([][]bool, game.Width)
+	for i := range game.Width {
+		Cleared[i] = make([]bool, game.Height)
+	}
+	
+	for V := range game.Height {
+		for H := range game.Width {
+			if Cleared[H][V] { continue }
+			Cleared[H][V] = true
+			switch game.proximityBoard[H][V] {
+				case bombTile: continue // Bombs aren't counted, obviously
+				case emptyTile: // This is where I have to do the flood fill sweeping thing.
+					aroundZero := false // I deviated from the implementation here, but I thought this was clever.
+					for _, Surrounding := range game.inBoundsTilesAround(H, V) {
+						if Cleared[Surrounding.X][Surrounding.Y] && game.proximityBoard[Surrounding.X][Surrounding.Y] == emptyTile {
+							Cleared[H][V] = true
+							aroundZero = true
+							continue
+						}
+					}
+					if !aroundZero { Clicks++ }
+					// These are very similar, I should do something about that.
+				default:
+					aroundZero := false
+					for _, i := range game.inBoundsTilesAround(H, V) {
+						if game.proximityBoard[i.X][i.Y] == emptyTile {
+							aroundZero = true
+							continue
+						}
+					}
+					if !aroundZero { Clicks++ }	
+					
+			}
+		}			
+	}
+	return Clicks // Could (should?) do a naked return, but better for readability.
+}
+
+func (game *Game) SetDifficulty(Chosen int) {
+	// 1..4: Beginner 8x8 10, Intermediate 16x16 40, Expert 30x16 99, Custom WxH B
+	switch Chosen {
+		case 1 : game.Width, game.Height, game.Bombs = 8, 8, 10
+		case 2 : game.Width, game.Height, game.Bombs = 16, 16, 40
+		case 3 : game.Width, game.Height, game.Bombs = 30, 16, 99
+		case 4 :
+			fmt.Print("In the format WxH B: ")
+			fmt.Scanf("%dx%d %d", &game.Width, &game.Height, &game.Bombs)// Does this need a \n?
+			// I should probably check for errors
+			for game.Width <= 0 {
+				fmt.Printf("Dimensions must be >= 0.\nWidth: ")
+				fmt.Scanf("%d\n", &game.Width)
+			}
+			for game.Height <= 0 {
+				fmt.Printf("Dimensions must be >= 0.\nHeight: ")
+				fmt.Scanf("%d\n", &game.Height)
+			}
+			for game.Bombs >= game.Width * game.Height {
+				fmt.Printf("Bombs must be less than Width * Height.\nBombs: ")
+				fmt.Scanf("%d\n", &game.Bombs)
+			}
+			// if Bombs > (Width - 1) * (Height - 1) {fmt.Println("Warning: ")}
+	}
+}
+
+func (game *Game)  Draw(Screen *ebiten.Image) {
 	for Hori := range game.Width {
 		for Vert := range game.Height {
 			game.Location.GeoM.Reset()
 			game.Location.GeoM.Translate(float64(Hori*game.TileSizeX), float64(Vert*game.TileSizeY))
 			tileIndex := game.displayBoard[Hori][Vert]
 
+			if game.gameState != 2 {
 			// Hollow tiles
 			// Put here because I don't want to have to track or modify the DisplayBoard
-			if game.Digging.IsHeld {
-				if xt, yt := game.GetTiles() ; Hori == xt && Vert == yt {
-					if tileIndex == unclickedTile {
-						tileIndex = emptyTile
-					}
-				}
-			}
-
-			if game.Sweeping.IsHeld {
-				for _, validLocs := range game.inBoundsTilesAround(game.GetTiles()) {
-					if Hori == validLocs.X && Vert == validLocs.Y {
+				if game.Digging.IsHeld {
+					if xt, yt := game.GetTiles() ; Hori == xt && Vert == yt {
 						if tileIndex == unclickedTile {
 							tileIndex = emptyTile
+						}
+					}
+				}
+
+				if game.Sweeping.IsHeld {
+					for _, validLocs := range game.inBoundsTilesAround(game.GetTiles()) {
+						if Hori == validLocs.X && Vert == validLocs.Y {
+							if tileIndex == unclickedTile {
+								tileIndex = emptyTile
+							}
 						}
 					}
 				}
